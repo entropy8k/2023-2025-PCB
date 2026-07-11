@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta property="og:title" content="2023-2025 PCB general chat log" />
+    <meta property="og:description" content="2,992,348 messages released by entropy's benevolence 11/07/2026" />
+    <title>#general</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #ffffff;
+            color: #000000;
+            margin: 0;
+            padding: 0;
+        }
+        #toolbar {
+            position: sticky;
+            top: 0;
+            background: #f0f0f0;
+            border-bottom: 1px solid #ccc;
+            padding: 8px 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            z-index: 10;
+        }
+        #toolbar button {
+            font-family: monospace;
+            padding: 4px 12px;
+            cursor: pointer;
+        }
+        #toolbar button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        #searchBox {
+            font-family: monospace;
+            padding: 4px 8px;
+            width: 220px;
+        }
+        #status {
+            font-size: 13px;
+            color: #555;
+        }
+        #results {
+            border-bottom: 1px solid #ccc;
+            max-height: 260px;
+            overflow-y: auto;
+            display: none;
+        }
+        #results div.result {
+            padding: 6px 10px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        #results div.result:hover {
+            background: #f5f5f5;
+        }
+        #results div.result .meta {
+            color: #888;
+            margin-right: 8px;
+        }
+        pre {
+            white-space: pre;
+            overflow-x: auto;
+            margin: 0;
+            padding: 10px;
+        }
+        mark {
+            background: #ffe066;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="toolbar">
+        <button id="prevBtn">&laquo; prev</button>
+        <span id="status">loading...</span>
+        <button id="nextBtn">next &raquo;</button>
+        <input id="searchBox" type="text" placeholder="search...">
+        <button id="searchBtn">search all</button>
+        <button id="closeResults" style="display:none">close results</button>
+    </div>
+    <div id="results"></div>
+    <pre id="text-container"></pre>
+
+<script>
+    const totalChunks = 12;
+    let currentChunk = 0;
+
+    const container = document.getElementById('text-container');
+    const status = document.getElementById('status');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const searchBox = document.getElementById('searchBox');
+    const searchBtn = document.getElementById('searchBtn');
+    const resultsEl = document.getElementById('results');
+    const closeResultsBtn = document.getElementById('closeResults');
+
+    const cache = {};
+
+    function chunkName(n) {
+        return `log_${String(n).padStart(2, '0')}.txt`;
+    }
+
+    async function fetchChunk(n) {
+        if (cache[n] !== undefined) return cache[n];
+        const res = await fetch(chunkName(n));
+        if (!res.ok) throw new Error('fetch failed');
+        const text = await res.text();
+        cache[n] = text;
+        return text;
+    }
+
+    async function loadChunk(n, jumpTerm) {
+        status.textContent = `loading chunk ${n + 1} of ${totalChunks}...`;
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        container.textContent = '';
+
+        try {
+            const text = await fetchChunk(n);
+            container.textContent = text;
+            currentChunk = n;
+            status.textContent = `chunk ${n + 1} of ${totalChunks}`;
+        } catch (e) {
+            status.textContent = `couldn't load ${chunkName(n)}`;
+        }
+
+        prevBtn.disabled = currentChunk === 0;
+        nextBtn.disabled = currentChunk === totalChunks - 1;
+
+        if (jumpTerm) {
+            window.scrollTo(0, 0);
+            setTimeout(() => {
+                if (window.find) {
+                    window.find(jumpTerm);
+                } else {
+                    status.textContent += ' (use ctrl+f to locate the match)';
+                }
+            }, 50);
+        } else {
+            window.scrollTo(0, 0);
+        }
+    }
+
+    prevBtn.addEventListener('click', () => {
+        if (currentChunk > 0) loadChunk(currentChunk - 1);
+    });
+    nextBtn.addEventListener('click', () => {
+        if (currentChunk < totalChunks - 1) loadChunk(currentChunk + 1);
+    });
+
+    async function searchAll() {
+        const term = searchBox.value.trim();
+        if (!term) return;
+
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const wordRegex = new RegExp(`\\b${escaped}\\b`, 'i');
+
+        searchBtn.disabled = true;
+        resultsEl.style.display = 'block';
+        closeResultsBtn.style.display = 'inline-block';
+        resultsEl.innerHTML = '<div class="result">searching...</div>';
+
+        const matches = [];
+        const maxMatches = 300;
+
+        for (let n = 0; n < totalChunks; n++) {
+            status.textContent = `searching chunk ${n + 1} of ${totalChunks}...`;
+            let text;
+            try {
+                text = await fetchChunk(n);
+            } catch (e) {
+                continue;
+            }
+            const lines = text.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                if (wordRegex.test(lines[i])) {
+                    matches.push({ chunk: n, line: i + 1, snippet: lines[i].slice(0, 200) });
+                    if (matches.length >= maxMatches) break;
+                }
+            }
+            if (matches.length >= maxMatches) break;
+        }
+
+        renderResults(matches, term);
+        searchBtn.disabled = false;
+        status.textContent = `chunk ${currentChunk + 1} of ${totalChunks}`;
+    }
+
+    function renderResults(matches, term) {
+        if (matches.length === 0) {
+            resultsEl.innerHTML = '<div class="result">no matches found</div>';
+            return;
+        }
+        resultsEl.innerHTML = '';
+        const header = document.createElement('div');
+        header.className = 'result';
+        header.style.fontWeight = 'bold';
+        header.textContent = `${matches.length}${matches.length >= 300 ? '+' : ''} match(es) for "${term}"`;
+        resultsEl.appendChild(header);
+
+        for (const m of matches) {
+            const div = document.createElement('div');
+            div.className = 'result';
+            const meta = document.createElement('span');
+            meta.className = 'meta';
+            meta.textContent = `[chunk ${m.chunk + 1}, line ${m.line}]`;
+            div.appendChild(meta);
+            div.appendChild(document.createTextNode(m.snippet));
+            div.addEventListener('click', () => {
+                loadChunk(m.chunk, term);
+            });
+            resultsEl.appendChild(div);
+        }
+    }
+
+    searchBtn.addEventListener('click', searchAll);
+    searchBox.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') searchAll();
+    });
+    closeResultsBtn.addEventListener('click', () => {
+        resultsEl.style.display = 'none';
+        closeResultsBtn.style.display = 'none';
+    });
+
+    loadChunk(0);
+</script>
+
+</body>
+</html>
