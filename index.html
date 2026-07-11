@@ -79,9 +79,10 @@
 
     <div id="toolbar">
         <button id="prevBtn">&laquo; prev</button>
-        <span id="status">loading...</span>
+        <select id="monthSelect"></select>
         <button id="nextBtn">next &raquo;</button>
-        <input id="searchBox" type="text" placeholder="search...">
+        <span id="status">loading...</span>
+        <input id="searchBox" type="text" placeholder="search all months (whole word)...">
         <button id="searchBtn">search all</button>
         <button id="closeResults" style="display:none">close results</button>
     </div>
@@ -89,50 +90,59 @@
     <pre id="text-container"></pre>
 
 <script>
-    const totalChunks = 12;
-    let currentChunk = 0;
+    let months = [];       // e.g. ["2023-08", "2023-09", ...]
+    let currentIndex = 0;
 
     const container = document.getElementById('text-container');
     const status = document.getElementById('status');
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
+    const monthSelect = document.getElementById('monthSelect');
     const searchBox = document.getElementById('searchBox');
     const searchBtn = document.getElementById('searchBtn');
     const resultsEl = document.getElementById('results');
     const closeResultsBtn = document.getElementById('closeResults');
 
-    const cache = {};
+    const cache = {}; // month key -> raw text
 
-    function chunkName(n) {
-        return `log_${String(n).padStart(2, '0')}.txt`;
+    function fileName(key) {
+        return `log_${key}.txt`;
     }
 
-    async function fetchChunk(n) {
-        if (cache[n] !== undefined) return cache[n];
-        const res = await fetch(chunkName(n));
+    function monthLabel(key) {
+        const [y, m] = key.split('-');
+        const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return `${names[parseInt(m, 10) - 1]} ${y}`;
+    }
+
+    async function fetchMonth(key) {
+        if (cache[key] !== undefined) return cache[key];
+        const res = await fetch(fileName(key));
         if (!res.ok) throw new Error('fetch failed');
         const text = await res.text();
-        cache[n] = text;
+        cache[key] = text;
         return text;
     }
 
-    async function loadChunk(n, jumpTerm) {
-        status.textContent = `loading chunk ${n + 1} of ${totalChunks}...`;
+    async function loadMonth(index, jumpTerm) {
+        const key = months[index];
+        status.textContent = `loading ${monthLabel(key)}...`;
         prevBtn.disabled = true;
         nextBtn.disabled = true;
         container.textContent = '';
 
         try {
-            const text = await fetchChunk(n);
+            const text = await fetchMonth(key);
             container.textContent = text;
-            currentChunk = n;
-            status.textContent = `chunk ${n + 1} of ${totalChunks}`;
+            currentIndex = index;
+            monthSelect.value = key;
+            status.textContent = `${monthLabel(key)} (${index + 1} of ${months.length})`;
         } catch (e) {
-            status.textContent = `couldn't load ${chunkName(n)}`;
+            status.textContent = `couldn't load ${fileName(key)}`;
         }
 
-        prevBtn.disabled = currentChunk === 0;
-        nextBtn.disabled = currentChunk === totalChunks - 1;
+        prevBtn.disabled = currentIndex === 0;
+        nextBtn.disabled = currentIndex === months.length - 1;
 
         if (jumpTerm) {
             window.scrollTo(0, 0);
@@ -149,10 +159,14 @@
     }
 
     prevBtn.addEventListener('click', () => {
-        if (currentChunk > 0) loadChunk(currentChunk - 1);
+        if (currentIndex > 0) loadMonth(currentIndex - 1);
     });
     nextBtn.addEventListener('click', () => {
-        if (currentChunk < totalChunks - 1) loadChunk(currentChunk + 1);
+        if (currentIndex < months.length - 1) loadMonth(currentIndex + 1);
+    });
+    monthSelect.addEventListener('change', () => {
+        const idx = months.indexOf(monthSelect.value);
+        if (idx !== -1) loadMonth(idx);
     });
 
     async function searchAll() {
@@ -170,18 +184,19 @@
         const matches = [];
         const maxMatches = 300;
 
-        for (let n = 0; n < totalChunks; n++) {
-            status.textContent = `searching chunk ${n + 1} of ${totalChunks}...`;
+        for (let i = 0; i < months.length; i++) {
+            const key = months[i];
+            status.textContent = `searching ${monthLabel(key)}...`;
             let text;
             try {
-                text = await fetchChunk(n);
+                text = await fetchMonth(key);
             } catch (e) {
                 continue;
             }
             const lines = text.split('\n');
-            for (let i = 0; i < lines.length; i++) {
-                if (wordRegex.test(lines[i])) {
-                    matches.push({ chunk: n, line: i + 1, snippet: lines[i].slice(0, 200) });
+            for (let j = 0; j < lines.length; j++) {
+                if (wordRegex.test(lines[j])) {
+                    matches.push({ monthIndex: i, key, line: j + 1, snippet: lines[j].slice(0, 200) });
                     if (matches.length >= maxMatches) break;
                 }
             }
@@ -190,7 +205,7 @@
 
         renderResults(matches, term);
         searchBtn.disabled = false;
-        status.textContent = `chunk ${currentChunk + 1} of ${totalChunks}`;
+        status.textContent = `${monthLabel(months[currentIndex])} (${currentIndex + 1} of ${months.length})`;
     }
 
     function renderResults(matches, term) {
@@ -210,11 +225,11 @@
             div.className = 'result';
             const meta = document.createElement('span');
             meta.className = 'meta';
-            meta.textContent = `[chunk ${m.chunk + 1}, line ${m.line}]`;
+            meta.textContent = `[${monthLabel(m.key)}, line ${m.line}]`;
             div.appendChild(meta);
             div.appendChild(document.createTextNode(m.snippet));
             div.addEventListener('click', () => {
-                loadChunk(m.chunk, term);
+                loadMonth(m.monthIndex, term);
             });
             resultsEl.appendChild(div);
         }
@@ -229,7 +244,25 @@
         closeResultsBtn.style.display = 'none';
     });
 
-    loadChunk(0);
+    async function init() {
+        status.textContent = 'loading manifest...';
+        try {
+            const res = await fetch('manifest.json');
+            months = await res.json();
+        } catch (e) {
+            status.textContent = 'could not load manifest.json';
+            return;
+        }
+        for (const key of months) {
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = monthLabel(key);
+            monthSelect.appendChild(opt);
+        }
+        if (months.length > 0) loadMonth(0);
+    }
+
+    init();
 </script>
 
 </body>
