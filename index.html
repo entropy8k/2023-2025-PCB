@@ -82,7 +82,7 @@
         <select id="monthSelect"></select>
         <button id="nextBtn">next &raquo;</button>
         <span id="status">loading...</span>
-        <input id="searchBox" type="text" placeholder="search all months (whole word)...">
+        <input id="searchBox" type="text" placeholder="search...">
         <button id="searchBtn">search all</button>
         <button id="closeResults" style="display:none">close results</button>
     </div>
@@ -90,7 +90,7 @@
     <pre id="text-container"></pre>
 
 <script>
-    let months = [];       // e.g. ["2023-08", "2023-09", ...]
+    let months = [];
     let currentIndex = 0;
 
     const container = document.getElementById('text-container');
@@ -103,7 +103,7 @@
     const resultsEl = document.getElementById('results');
     const closeResultsBtn = document.getElementById('closeResults');
 
-    const cache = {}; // month key -> raw text
+    const cache = {};
 
     function fileName(key) {
         return `log_${key}.txt`;
