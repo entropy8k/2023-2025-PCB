@@ -72,6 +72,28 @@
             overflow-x: auto;
             margin: 0;
             padding: 10px;
+            line-height: 1.2;
+        }
+        .blk {
+            display: inline-block;
+            width: 1ch;
+            height: 1.2em;
+            vertical-align: bottom;
+        }
+        .blkfull {
+            background: #000000;
+        }
+        .blkupper {
+            background: linear-gradient(to bottom, #000000 50%, transparent 50%);
+        }
+        .blklower {
+            background: linear-gradient(to top, #000000 50%, transparent 50%);
+        }
+        .blkleft {
+            background: linear-gradient(to right, #000000 50%, transparent 50%);
+        }
+        .blkright {
+            background: linear-gradient(to left, #000000 50%, transparent 50%);
         }
         mark {
             background: #ffe066;
@@ -107,6 +129,73 @@
     const closeResultsBtn = document.getElementById('closeResults');
 
     const cache = {};
+    
+    const BLOCK_MAP = {
+        '\u2588': 'blkfull',   // █ full block
+        '\u2580': 'blkupper',  // ▀ upper half block
+        '\u2584': 'blklower',  // ▄ lower half block
+        '\u258C': 'blkleft',   // ▌ left half block
+        '\u2590': 'blkright',  // ▐ right half block
+    };
+    const BLOCK_CHARS_RE = /[\u2580\u2584\u2588\u258C\u2590]/;
+
+    function renderLineWithBlocks(line) {
+        const fragLine = document.createDocumentFragment();
+        let buffer = '';
+        let i = 0;
+        while (i < line.length) {
+            const ch = line[i];
+            const cls = BLOCK_MAP[ch];
+            if (cls) {
+                if (buffer) {
+                    fragLine.appendChild(document.createTextNode(buffer));
+                    buffer = '';
+                }
+                let count = 1;
+                while (line[i + count] === ch) count++;
+                const span = document.createElement('span');
+                span.className = 'blk ' + cls;
+                span.style.width = count + 'ch';
+                fragLine.appendChild(span);
+                i += count;
+            } else {
+                buffer += ch;
+                i++;
+            }
+        }
+        if (buffer) fragLine.appendChild(document.createTextNode(buffer));
+        return fragLine;
+    }
+
+    function renderTextToPre(text, preEl) {
+        preEl.textContent = '';
+        if (!BLOCK_CHARS_RE.test(text)) {
+
+            preEl.textContent = text;
+            return;
+        }
+        const lines = text.split('\n');
+        const frag = document.createDocumentFragment();
+        let plainChunk = '';
+        const flushPlain = () => {
+            if (plainChunk) {
+                frag.appendChild(document.createTextNode(plainChunk));
+                plainChunk = '';
+            }
+        };
+        lines.forEach((line, idx) => {
+            const isLast = idx === lines.length - 1;
+            if (BLOCK_CHARS_RE.test(line)) {
+                flushPlain();
+                frag.appendChild(renderLineWithBlocks(line));
+                if (!isLast) frag.appendChild(document.createTextNode('\n'));
+            } else {
+                plainChunk += line + (isLast ? '' : '\n');
+            }
+        });
+        flushPlain();
+        preEl.appendChild(frag);
+    }
 
     function fileName(key) {
         return `log_${key}.txt`;
@@ -136,7 +225,7 @@
 
         try {
             const text = await fetchMonth(key);
-            container.textContent = text;
+            renderTextToPre(text, container);
             currentIndex = index;
             monthSelect.value = key;
             status.textContent = `${monthLabel(key)} (${index + 1} of ${months.length})`;
